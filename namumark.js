@@ -5,14 +5,13 @@ for(var item in functions) global[item] = functions[item];
 
 var available = true;
 try {
-	if(!hostconfig.force_enable_multithreading) throw 1;
 	if(os.cpus().length < 2) throw 1;
 	if(process.versions.node.split('.')[0] < 16) throw 1;
-	if(hostconfig.disable_multithreading && !hostconfig.force_enable_multithreading) throw 1;
+	if(hostconfig.disable_multithreading) throw 1;
 	require('worker_threads');
 } catch(e) {
 	available = false;
-	console.warn('[알림!]: 멀티 쓰레딩이 꺼져 있습니다');
+	console.warn('[경고!]: 시스템이 멀티 쓰레딩을 지원하지 않습니다');
 }
 
 if(available) {

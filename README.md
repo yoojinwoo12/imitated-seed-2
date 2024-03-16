@@ -5,18 +5,13 @@
 더시드 엔진 (구 프론트엔드 기준) 모방 프로젝트.  
 < "엔진 내부 UI는 상관없음." ( https://feedback.theseed.io/posts/280 ) >  
 
-[onamu-theseed](https://github.com/gdl-blue/onamu-theseed)의 후속이다.
-
-이 엔진이 정상 작동하는 것으로 확인된 Node.js 버전은 8.6.0, 12.16.2, 12.18.1, 16.6.2이다. 만약 혹시나 Windows XP/Vista에서 실행이 필요한 경우 [이것](https://github.com/hlizard/node8-xp/raw/v8.6.0-xp/Release/Release.zip)을 사용할 것.
-
 테스트 서버:
-- [내 서버](https://go2021.glitch.me) - the seed 4.11.2
-- ~~[test님의 서버](https://seore.org) - the seed 4.20.0, Nuxt.js로 포팅됨~~
-- [테스트위키](https://testwiki.kr) - the seed 4.22.8
+- [내 서버](https://go2021.run-us-west2.goorm.io/w/FrontPage) - the seed 4.7.2
+- [test님의 서버](https://seore.org) - the seed 4.20.0, Nuxt.js로 포팅됨
 
 나무픽스와 거의 호환된다.
 
-Pull Request 시 서버 코드에는 `?.`, `??`, `import` 등의 신문법, 프론트엔드 자바스크립트에는 ES6 이상 문법을 사용하지 말 것.
+Pull Request 시 서버 코드에는 Node.js 13 이상, 프론트엔드 자바스크립트에는 ES6 이상 문법을 사용하지 말 것.
 
 파서 함수 이름이 마크다운인 이유는 개발 초기에는 마크다운을 사용했기 때문이다.
 
@@ -30,12 +25,11 @@ Pull Request 시 서버 코드에는 `?.`, `??`, `import` 등의 신문법, 프�
 - `npm i`를 실행한다.
 - `node server`를 실행한다.
 
-## 이메일 설정법 [Gmail]
+## 이메일 설정법
 - 먼저 "자신사이트주소/admin/config" 에 접속해 `사이트 주소`란에 자신의 사이트주소를 입력한다.
 - config.json 파일을 열고 `"disable_email":"true"`를 제거한다.
-- `"mailhost":"smtp.gmail.com","email":"인증메일을 보낼 Gmail 주소","passwd":"구글 앱 비밀번호"`를 추가한다.
+- `"email":"인증메일을 보낼 Gmail 주소","passwd":"구글 앱 비밀번호"`를 추가한다.
 - [[구글 앱 비밀번호 설정링크]](https://myaccount.google.com/apppasswords)
-- 타사메일의 경우 smtp.gmail.com을 타사메일의 smtp주소로 변경해야함.
 
 ## 추가 도구
 - undelete-thread.js: 삭제된 토론 복구
@@ -63,12 +57,6 @@ Pull Request 시 서버 코드에는 `?.`, `??`, `import` 등의 신문법, 프�
   - `protect_owner`: (기본값 false) 소유자 보호 기능을 활성화한다.
   - `disable_multithread`: (기본값 false) 멀티쓰레딩을 비활성화한다.
   - `custom_namespaces`: (기본값 []) 사용자 지정 이름공간 배열
-  - `sessionhttp`: (기본값 false) true로 설정시, https접속시에만 로그인이 유지된다.
-  - `mailhost`: (기본값 []) 이메일 호스트 설정.
-  - `email`: (기본값 []) 이메일 주소.
-  - `passwd`: (기본값 []) 이메일 주소의 비밀번호(gmail의 경우 앱 비밀번호).
-  - `disable_file_server`: (기본값 false) 별도 파일 서버 없이도 파일 업로드가 가능하게 한다.
-  - `max_file_size`: (기본값 2000000) 최대 파일 크기 (바이트 단위)
 
 ## 라이선스
 자유롭게 쓰기 바란다. ()

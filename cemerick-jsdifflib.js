@@ -37,15 +37,9 @@ or implied, of Chas Emerick.
 
 // Code to run on Node.js
 const jsdom = require('jsdom');
-var JSDOM, document;
-if(jsdom.JSDOM) {
-	// JSDOM 신버전용 코드
-	JSDOM = jsdom.JSDOM;
-	document = (new JSDOM('<div></div>')).window.document;
-} else {
-	// JSDOM 9.12.0 버전용 코드
-	document = jsdom.jsdom('<div></div>');
-}
+const { JSDOM } = jsdom;
+const { window } = new JSDOM();
+const { document } = (new JSDOM('<div></div>')).window;
 
 var __whitespace = {" ":true, "\t":true, "\n":true, "\f":true, "\r":true};
 

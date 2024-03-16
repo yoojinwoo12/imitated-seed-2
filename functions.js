@@ -2,7 +2,6 @@ const path = require('path');
 const geoip = require('geoip-lite');
 const inputReader = require('wait-console-input');
 const { SHA3 } = require('sha3');
-const { sha256 } = require('js-sha256');
 const md5 = require('md5');
 const express = require('express');
 const session = require('express-session');
@@ -10,11 +9,14 @@ const swig = require('swig');
 const ipRangeCheck = require('ip-range-check');
 const bodyParser = require('body-parser');
 const fs = require('fs');
+const { JSDOM } = require('jsdom');
+const jquery = require('jquery');
 const diff = require('./cemerick-jsdifflib.js');
 const cookieParser = require('cookie-parser');
 const child_process = require('child_process');
 const captchapng = require('captchapng');
-const nodemailer = require('nodemailer');
+const multer = require('multer');
+const upload = multer();  // 파일 올리기 모듈
 
 const database = require('./database');
 for(var item in database) global[item] = database[item];
@@ -25,8 +27,6 @@ const _ = undefined;
 
 const floorof = Math.floor;
 const randint = (s, e) => floorof(Math.random() * (e + 1 - s) + s);
-
-const ranking = [];
 
 String.prototype.splice = function splice(s, l, r) {
 	return this.substr(0, s) + r + this.substr(s + l, this.length);
@@ -65,7 +65,6 @@ var apiTokens = {};  // API 편집 토큰
 
 var loginHistory = {};
 var neededPages = {};
-var aclgroupCache = { css: {}, group: {} };
 
 // https://stackoverflow.com/questions/1349404/generate-random-string-characters-in-javascript
 // 무작위 문자열 생성
@@ -96,23 +95,20 @@ const whattr = {
 
 // 사용자 권한
 var perms = [
-	'hide_document_history_log', 'delete_thread', 'admin', 'editable_other_user_document', 'suspend_account', 'ipacl', 
+	'delete_thread', 'admin', 'editable_other_user_document', 'suspend_account', 'ipacl', 
 	'update_thread_status', 'acl', 'nsacl', 'hide_thread_comment', 'grant', 'no_force_recaptcha', 
 	'disable_two_factor_login', 'login_history', 'update_thread_document', 'update_thread_topic', 
 	'aclgroup', 'api_access', 
 ];
 var disable_autoperms = ['disable_two_factor_login'];
 
-if(ver('4.18.0')) perms.remove('ipacl'), perms.remove('suspend_account');
+if(version.minor >= 18) perms.remove('ipacl'), perms.remove('suspend_account');
 else perms.remove('aclgroup');
-if(ver('4.2.0')) perms.remove('acl');
-if(!ver('4.20.0')) perms.remove('api_access');
-if(!ver('4.4.1')) perms.remove('disable_two_factor_login');
-if(!ver('4.4.2')) perms.remove('login_history');
-if(!ver('4.22.4')) perms.remove('hide_document_history_log');
-if(ver('4.18.0')) perms.remove('editable_other_user_document');
-if(!ver('4.4.3')) { perms.remove('update_thread_document'); perms.remove('update_thread_topic'); }
-if(!ver('4.0.20')) perms.push('developer', 'tribune', 'arbiter');
+if(version.minor >= 2) perms.remove('acl');
+if(version.minor < 20) perms.remove('api_access');
+if(version.minor >= 18) perms.remove('editable_other_user_document');
+if(!(version.minor > 4 || (version.minor == 4 && version.revision >= 3))) { perms.remove('update_thread_document'); perms.remove('update_thread_topic'); }
+if(!(version.minor > 0 || (version.minor == 0 && version.revision >= 20))) perms.push('developer', 'tribune', 'arbiter');
 if(hostconfig.debug) perms.push('debug');
 
 // 삐
@@ -182,41 +178,6 @@ function toDate(t) {
     return year + "-" + month + "-" + day + " " + hour + ":" + min + ":" + sec;
 }
 
-function formatRelativeDate(t) {
-	var cur = getTime();
-	// 초 단위 시간 구분
-	if(Math.abs(cur - Math.floor(Number(t)) * 1000) < Math.abs(cur - Math.floor(Number(t)))) {
-		t = Number(t) * 1000;
-	}
-	var date = new Date(Number(t));
-
-	var now = new Date();
-
-	var ret = '';
-	var gap = (now.getTime() - date.getTime()) / 1000;
-	
-	var rawdate = date.getFullYear() + '-' +
-		(date.getMonth() + 1) + '-' +
-		date.getDate() + ' ' +
-		(date.getHours() > 12 ? date.getHours() - 12 : (date.getHours() == 0 ? 12 : date.getHours())) + ':' +
-		date.getMinutes() + ':' + 
-		date.getSeconds();
-	
-	if(gap / 259200 >= 1) {
-		ret = rawdate;
-	} else if(gap / 86400 >= 1) {
-		ret = floorof(gap / 86400) + '일 전';
-	} else if(gap / 3600 >= 1) {
-		ret = floorof(gap / 3600) + '시간 전';
-	} else if(gap / 60 >= 1) {
-		ret = floorof(gap / 60) + '분 전';
-	} else {
-		ret = floorof(gap / 1) + '초 전';
-	}
-
-	return `<time datetime="${date.toISOString()}" title="${rawdate}">${ret}</time>`;
-}
-
 function toTime(t) {
 	var cur = getTime();
 	// 초 단위 시간 구분
@@ -251,40 +212,33 @@ function islogin(req) {
 function ip_check(req, forceIP) {
 	if(!forceIP && req.session.username)
 		return req.session.username;
-	else if(hostconfig.custom_ip_header && req.headers[hostconfig.custom_ip_header.toLowerCase()])
-		return req.headers[hostconfig.custom_ip_header.toLowerCase()]
 	else
 		return (req.headers['x-forwarded-for'] || (req.socket ? req.socket.remoteAddress : req.connection.remoteAddress) || req.ip || '10.0.0.9').split(',')[0];
 }
 
 // 사용자설정 가져오기
-function getUserset(req, str, def) {
+function getUserset(req, str, def = '') {
     str = str.replace(/^wiki[.]/, '');
-	if(!islogin(req)) return def === undefined ? '' : def;
+	if(!islogin(req)) return def;
 	const username = ip_check(req);
 	
     if(!userset[username] || !userset[username][str]) {
-		if(def !== undefined) {
-			if(!userset[username]) userset[username] = {};
-			userset[username][str] = def;
-			curs.execute("delete from user_settings where username = ? and key = ?", [username, str]);
-			curs.execute("insert into user_settings (username, key, value) values (?, ?, ?)", [username, str, def]);
-		}
-        return def === undefined ? '' : def;
+        if(!userset[username]) userset[username] = {};
+        userset[username][str] = def;
+		curs.execute("insert into user_settings (username, key, value) values (?, ?, ?)", [username, str, def]);
+        return def;
     }
     return userset[username][str];
 }
 
-function getUserSetting(username, str, def) {
+function getUserSetting(username, str, def = '') {
     str = str.replace(/^wiki[.]/, '');
 	
     if(!userset[username] || !userset[username][str]) {
-		if(def !== undefined) {
-			if(!userset[username]) userset[username] = {};
-			userset[username][str] = def;
-			curs.execute("insert into user_settings (username, key, value) values (?, ?, ?)", [username, str, def]);
-		}
-        return def === undefined ? '' : def;
+        if(!userset[username]) userset[username] = {};
+        userset[username][str] = def;
+		curs.execute("insert into user_settings (username, key, value) values (?, ?, ?)", [username, str, def]);
+        return def;
     }
     return userset[username][str];
 }
@@ -962,9 +916,9 @@ function fetchValue(code) {
 }
 
 // 오류/알림풍선
-function alertBalloon(content, type = 'danger', dismissible = true, classes = '', noh, id) {
+function alertBalloon(content, type = 'danger', dismissible = true, classes = '', noh) {
 	return `
-		<div class="alert alert-${type} ${dismissible ? 'alert-dismissible' : ''} ${classes}" ${id ? ('id=' + id + ' ') : ''}role=alert>
+		<div class="alert alert-${type} ${dismissible ? 'alert-dismissible' : ''} ${classes}" role=alert>
 			${dismissible ? `<button type=button class=close data-dismiss=alert aria-label=Close>
 				<span aria-hidden=true>×</span>
 				<span class=sr-only>Close</span>
@@ -1017,13 +971,18 @@ async function showError(req, code, ...params) {
 }
 
 // 닉네임/아이피 파싱
-function ip_pas(ip = '', ismember = '', nobold, noagcss) {
+function ip_pas(ip = '', ismember = '', nobold) {
 	var style = '';
-	if(ver('4.18.0') && !noagcss && aclgroupCache.group[ip.toLowerCase()])
-		for(var grp of aclgroupCache.group[ip.toLowerCase()])
-			style += aclgroupCache.css[grp] + '; ';
-	if(style)
-		style = ' style="' + style + '"';
+	/*if(ver('4.18.0')) {
+		var dbdata = await curs.execute("select aclgroup from aclgroup where type = ? and username = ?", (ismember == 'author' ? 'username' : 'ip'), ip);
+		if(dbdata.length) {
+			var dbdata2 = await curs.execute("select css from aclgroup_groups where name = ?", [dbdata[0].aclgroup]);
+			if(dbdata2.length) {
+				style = ' style="' + html.escape(dbdata2[0].css) + '"';
+			}
+		}
+	}*/
+	
 	if(ismember == 'author') {
 		return `${nobold ? '' : '<strong>'}<a${style} href="/w/사용자:${encodeURIComponent(ip)}">${html.escape(ip)}</a>${nobold ? '' : '</strong>'}`;
 	} else {
@@ -1046,20 +1005,9 @@ async function ipblocked(ip) {
 	} return false;
 }
 
-Array.prototype.remove = function remove(item) {
-	const idx = this.indexOf(item);
-	if (idx > -1)
-		this.splice(idx, 1);
-	return this;
-};
-
 // 계정 차단 여부
 async function userblocked(username) {
 	if(ver('4.18.0')) {
-		var dbdata = await curs.execute("select username, aclgroup from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
-		for(var item of dbdata) 
-			if(aclgroupCache.group[item.username.toLowerCase()])
-				aclgroupCache.group[item.username.toLowerCase()].remove(item.aclgroup);
 		await curs.execute("delete from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
 		var data = await curs.execute("select id, type, username, note, expiration, date from aclgroup where aclgroup = ? and username = ?", ['차단된 사용자', username]);
 		if(data.length) {
@@ -1100,10 +1048,6 @@ async function getacl2(req, title, namespace, type, getmsg) {
 	acl.edit_request = 'everyone';
 	var ret = 1, msg = '';
 	await curs.execute("delete from ipacl where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
-	var dbdata = await curs.execute("select username, aclgroup from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
-		for(var item of dbdata) 
-			if(aclgroupCache.group[item.username.toLowerCase()])
-				aclgroupCache.group[item.username.toLowerCase()].remove(item.aclgroup);
 	await curs.execute("delete from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
 	var ipacl = await curs.execute("select cidr, al, expiration, note from ipacl order by cidr asc limit 50");
 	var blocked = 0;
@@ -1150,7 +1094,7 @@ async function getacl2(req, title, namespace, type, getmsg) {
 }
 
 // ACL 검사
-async function getacl(req, title, namespace, type, getmsg, noeq) {
+async function getacl(req, title, namespace, type, getmsg) {
 	if(!ver('4.2.0'))
 		return await getacl2(req, title, namespace, type, getmsg);
 	
@@ -1160,10 +1104,6 @@ async function getacl(req, title, namespace, type, getmsg, noeq) {
 	
 	await curs.execute("delete from ipacl where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
 	await curs.execute("delete from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
-	var dbdata = await curs.execute("select username, aclgroup from aclgroup where not expiration = '0' and ? > cast(expiration as integer)", [Number(getTime())]);
-		for(var item of dbdata) 
-			if(aclgroupCache.group[item.username.toLowerCase()])
-				aclgroupCache.group[item.username.toLowerCase()].remove(item.aclgroup);
 	var ipacl = await curs.execute("select cidr, al, expiration, note from ipacl order by cidr asc limit 50");
 	var data = await curs.execute("select name, warning_description from aclgroup_groups");
 	var aclgroup = {};
@@ -1173,8 +1113,6 @@ async function getacl(req, title, namespace, type, getmsg, noeq) {
 		aclgroup[group.name] = data;
 		aclgroupWarnings[group.name] = group.warning_description;
 	}
-	
-	var bbk = false;
 	
 	async function f(table, isns) {
 		if(!flag && (!table.length || (ver('4.16.0') && type == 'read'))) {
@@ -1219,7 +1157,6 @@ async function getacl(req, title, namespace, type, getmsg, noeq) {
 								ret = 1;
 								if(row.al == '1') msg = '해당 IP는 반달 행위가 자주 발생하는 공용 아이피이므로 로그인이 필요합니다.<br />(이 메세지는 본인이 반달을 했다기 보다는 해당 통신사를 쓰는 다른 누군가가 해서 발생했을 확률이 높습니다.)<br />차단 만료일 : ' + (row.expiration == '0' ? '무기한' : new Date(Number(row.expiration))) + '<br />차단 사유 : ' + row.note;
 								else msg = 'IP가 차단되었습니다.' + (verrev('4.5.9') ? ' <a href="https://board.namu.wiki/whyiblocked">게시판</a>으로 문의해주세요.' : '') + '<br />차단 만료일 : ' + (row.expiration == '0' ? '무기한' : new Date(Number(row.expiration))) + '<br />차단 사유 : ' + row.note;
-								bbk = true;
 								break;
 							}
 						}
@@ -1230,7 +1167,6 @@ async function getacl(req, title, namespace, type, getmsg, noeq) {
 						if(data) {
 							ret = 1;
 							msg = '차단된 계정입니다.<br />차단 만료일 : ' + (data.expiration == '0' ? '무기한' : new Date(Number(data.expiration))) + '<br />차단 사유 : ' + data.note;
-							bbk = true;
 						}
 					} break; case 'document_contributor': {
 						var data = await curs.execute("select rev from history where title = ? and namespace = ? and username = ? and ismember = ?", [title, namespace, ip_check(req), islogin(req) ? 'author' : 'ip']);
@@ -1368,7 +1304,7 @@ async function getacl(req, title, namespace, type, getmsg, noeq) {
 	if(!r.ret && !r.msg) {
 		r.msg = `${ver('4.7.0') && !r.m1 && !r.m2 ? 'ACL에 허용 규칙이 없기 때문에 ' : ''}${r.m1 && ver('4.7.0') ? r.m1 + '이기 때문에 ' : ''}${acltype[type]} 권한이 부족합니다.${r.m2 && ver('4.7.0') ? ' ' + r.m2.replace(/\sOR\s$/, '') + '(이)여야 합니다. ' : ''}`;
 		if(ver('4.5.9')) r.msg += ` 해당 문서의 <a href="/acl/${encodeURIComponent(totitle(title, namespace) + '')}">ACL 탭</a>을 확인하시기 바랍니다.`;
-		if(type == 'edit' && !bbk && !noeq)
+		if(type == 'edit' && getmsg != 2)
 			r.msg += ' 대신 <strong><a href="/new_edit_request/' + encodeURIComponent(totitle(title, namespace) + '') + '">편집 요청</a></strong>을 생성하실 수 있습니다.';
 	}
 	return r.msg;  // 거부되었으면 오류 메시지 내용 반환, 허용은 빈 문자열
@@ -1454,7 +1390,7 @@ function cacheSkinList() {
     skinList.length = 0;
 	for(var prop of Object.getOwnPropertyNames(skincfgs))
 		delete skincfgs[prop];
-    for(var dir of fs.readdirSync('./skins', { withFileTypes: true }).filter(f => fs.statSync('./skins/' + (f.name || f)).isDirectory()).map(dirent => dirent.name || dirent)) {
+    for(var dir of fs.readdirSync('./skins', { withFileTypes: true }).filter(dirent => dirent.isDirectory()).map(dirent => dirent.name)) {
         skinList.push(dir);
 		skincfgs[dir] = require('./skins/' + dir + '/config.json');
     }
@@ -1481,10 +1417,8 @@ function generateCaptcha(req, num) {
         fullnum += i;
         caps.push(new captchapng(120, 45, i));
     }
-	
-	var id = Math.round(Math.random() * 100000);
     
-    req.session['captcha-' + id] = fullnum;
+    req.session.captcha = fullnum;
     
     for(i of caps) {
         switch(randint(1, 6)) {
@@ -1516,15 +1450,14 @@ function generateCaptcha(req, num) {
     }
     
     return `
-        <div class=captcha-frame style="margin: 20px 0 20px 0; border-color: #000; border-width: 1px 1px 1px; border-style: solid; border-radius: 6px; display: table; padding: 10px; background: rgb(153, 208, 249); background: linear-gradient(rgb(153, 208, 249) 0%, rgb(13, 120, 200) 31%, rgb(43, 157, 242) 30%, rgb(202, 233, 255));">
+        <div class="captcha-frame" style="margin: 20px 0 20px 0; border-color: #000; border-width: 1px 1px 1px; border-style: solid; border-radius: 6px; display: table; padding: 10px; background: rgb(153, 208, 249); background: linear-gradient(rgb(153, 208, 249) 0%, rgb(13, 120, 200) 31%, rgb(43, 157, 242) 30%, rgb(202, 233, 255));">
             <div class=captcha-images>
                 ${retHTML}
             </div>
             
             <div class=captcha-input>
-                <label style="color: white;">보이는 숫자 입력: </label><br />
-				<input type=hidden name=captcha-id value=${id} />
-                <input type=text class=form-control name=captcha />
+                <label style="color: white;">보이는 숫자 입력: </label><br>
+                <input type=text class=form-control name=captcha>
             </div>
         </div>
     `;
@@ -1535,7 +1468,7 @@ function validateCaptcha(req) {
     if(hasperm(req, 'no_force_recaptcha') || hasperm(req, 'no_force_captcha')) return true;
     
     try {
-        if(req.body['captcha'].replace(/\s/g, '') != req.session['captcha-' + req.body['captcha-id']]) {
+        if(req.body['captcha'].replace(/\s/g, '') != req.session.captcha) {
             return false;
         }
     } catch(e) {
@@ -1644,29 +1577,7 @@ function simplifyRequest(req) {
 }
 
 function log(thread, msg) {
-	console.log(`[${toTime(getTime())}] [${thread}]: ${msg}`);
-}
-
-//메일 설정
-const transporter = nodemailer.createTransport({
-	host: hostconfig.mailhost,
-	port: 465,
-	secure: true,
-	auth: {
-	  user: hostconfig.email,
-	  pass: hostconfig.passwd
-	},
-  });
-
-function mailer(to, subject, content) {
-	const mailOptions = {
-		from: [config.getString('wiki.site_name')] + '<' + [hostconfig.email] + '>',
-        to: to ,
-        subject: subject,
-        html: content
-	};
-	transporter.sendMail(mailOptions);
-	log('메일러', to+'으로 가입인증메일 발송됨.');
+	console.log(`[${toTime(getTime())}] [${thread} 쓰레드]: ${msg}`);
 }
 
 module.exports = {
@@ -1695,20 +1606,17 @@ module.exports = {
 
 	loginHistory,
 	neededPages,
-	aclgroupCache,
 	
 	rndval,
 	beep, 
 	input, 
 	sha3, 
-	sha256,
 	random, 
 	findAll, 
 	getTime, 
 	toDate, 
 	toTime,
 	generateTime, 
-	formatRelativeDate,
 	islogin, 
 	ip_check, 
 	getUserset, 
@@ -1726,11 +1634,8 @@ module.exports = {
 	
 	timeFormat, _, floorof, randint,
 	
-	upload: null,
+	upload,
 	
 	simplifyRequest,
 	log,
-	mailer,
-	
-	ranking,
 };

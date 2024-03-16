@@ -8,20 +8,12 @@ const swig = require('swig');
 const ipRangeCheck = require('ip-range-check');
 const bodyParser = require('body-parser');
 const fs = require('fs');
+const { JSDOM } = require('jsdom');
+const jquery = require('jquery');
 const diff = require('./cemerick-jsdifflib.js');
 const cookieParser = require('cookie-parser');
 const child_process = require('child_process');
 const captchapng = require('captchapng');
-const _jsdom = require('jsdom');
-function jsdom(content) {
-	if(_jsdom.JSDOM) {
-		// JSDOM 신버전용 코드
-		return (new _jsdom.JSDOM(content)).window.document;
-	} else {
-		// JSDOM 9.12.0 버전용 코드
-		return _jsdom.jsdom(content);
-	}
-}
 
 const hostconfig = require('./hostconfig');
 const functions = require('./functions');
@@ -75,9 +67,7 @@ function parseTable(content) {
 			var wiop, width = ((wiop = (fulloptions.match(/&lt;table\s*width=((\d+)(px|%|))&gt;/))) || ['', ''])[1];
 			if(wiop) {
 				data = data.replace(tr, tr = tr.replace(wiop[0], ''));
-				if(width && !width.replace(/\d+/, ''))
-					width += 'px';
-				trs += 'width: 100%;';
+				trs += 'width: ' + width + '; ';
 			}
 			
 			var clop, color = ((clop = (fulloptions.match(/&lt;table\s*color=((#[a-fA-F0-9]{3,6})|([a-zA-Z]+))(([,]((#[a-fA-F0-9]{3,6})|([a-zA-Z]+)))|)&gt;/))) || ['', ''])[1];
@@ -100,7 +90,7 @@ function parseTable(content) {
 			
 			if(trs) ts = ' style="' + trs + '"';
 			
-			data = data.replace(tr, '<div class="wiki-table-wrap table-' + align + '"' + (width ? (' style="width: ' + width + ';"') : '') + '><table class=wiki-table' + ts + '><tbody>\n' + tr);
+			data = data.replace(tr, '<div class="wiki-table-wrap table-' + align + '"><table class=wiki-table' + ts + '><tbody>\n' + tr);
 			datarows = data.split('\n');
 		} if (  // 표의 끝이라면(아래에 || 문법 없음)
 			!((aftrow = (datarows[datarows.findIndex(s => s == (r = tr.split('\n'))[r.length - 1]) + 1] || '')).match(/^(<tr norender><td>(((?!<\/td><\/tr>($|\n))[\s\S])*)<\/td><\/tr>)$/im))  // 다음 줄이 표가 아니면
@@ -351,32 +341,12 @@ function parseList(data) {
 	const rows = ('\n' + data + '\n').split(/\n/);
 	const rl = rows.length;
 	var inlist = 0;
-	var inol1list = 0;
-	var inolalist = 0;
-	var inolAlist = 0;
-	var inolilist = 0;
-	var inolIlist = 0;
 	for(let i=0; i<rl; i++) {
 		let row = rows[i];
-		if(!row.match(/^(\s+)[*]/) && !row.match(/^(\s+)1[.]/) && !row.match(/^(\s+)i[.]/) && !row.match(/^(\s+)I[.]/) && !row.match(/^(\s+)a[.]/) && !row.match(/^(\s+)A[.]/) && !row.startsWith(' ')) {
+		if(!row.match(/^(\s+)[*]/) && !row.startsWith(' ')) {
 			if(inlist) {
 				row = '</liwikilist></ulwikilist>\n' + row;
 				inlist = 0;
-			} else if(inol1list) {
-				row = '</liwikilist></olwikilist>\n' + row;
-				inol1list = 0;
-			} else if(inolalist) {
-				row = '</liwikilist></olwikilist>\n' + row;
-				inolalist = 0;
-			} else if(inolAlist) {
-				row = '</liwikilist></olwikilist>\n' + row;
-				inolAlist = 0;
-			} else if(inolilist) {
-				row = '</liwikilist></olwikilist>\n' + row;
-				inolilist = 0;
-			} else if(inolIlist) {
-				row = '</liwikilist></olwikilist>\n' + row;
-				inolIlist = 0;
 			}
 			rows[i] = row;
 			continue;
@@ -385,84 +355,19 @@ function parseList(data) {
 			rows[i] = row.replace(/^(\s{2,})[*]/, ' *');
 			continue;
 		}
-		if(row.match(/^(\s{2,})1[.]/)) {
-			rows[i] = row.replace(/^(\s{2,})1[.]/, ' 1.');
-			continue;
-		}
-		if(row.match(/^(\s{2,})a[.]/)) {
-			rows[i] = row.replace(/^(\s{2,})a[.]/, ' a.');
-			continue;
-		}
-		if(row.match(/^(\s{2,})A[.]/)) {
-			rows[i] = row.replace(/^(\s{2,})A[.]/, ' A.');
-			continue;
-		}
-		if(row.match(/^(\s{2,})i[.]/)) {
-			rows[i] = row.replace(/^(\s{2,})i[.]/, ' i.');
-			continue;
-		}
-		if(row.match(/^(\s{2,})I[.]/)) {
-			rows[i] = row.replace(/^(\s{2,})I[.]/, ' I.');
-			continue;
-		}
 		if(row.startsWith(' *') && !inlist) {
 			row = row.replace(/^\s[*](\s*)/, '<ulwikilist class=wiki-list>\n<liwikilist>\n');
 			inlist = 1;
-		} else if(row.startsWith(' *')) {
+		} else {
 			row = row.replace(/^\s/, '');
 			row = row.replace(/^[*](\s*)/, '</liwikilist><liwikilist>\n');
 			inlist = 1;
-		}
-		if(row.startsWith(' 1.') && !inol1list) {
-			row = row.replace(/^\s1[.](\s*)/, '<olwikilist class=wiki-list>\n<liwikilist>\n');
-			inol1list = 1;
-		} else if(row.startsWith(' 1.')) {
-			row = row.replace(/^\s/, '');
-			row = row.replace(/^1[.](\s*)/, '</liwikilist><liwikilist>\n');
-			inol1list = 1;
-		}
-		if(row.startsWith(' a.') && !inolalist) {
-			row = row.replace(/^\sa[.](\s*)/, '<olwikilist class="wiki-list wiki-list-alpha">\n<liwikilist>\n');
-			inolalist = 1;
-		} else if(row.startsWith(' a.')) {
-			row = row.replace(/^\s/, '');
-			row = row.replace(/^a[.](\s*)/, '</liwikilist><liwikilist>\n');
-			inolalist = 1;
-		}
-		if(row.startsWith(' A.') && !inolAlist) {
-			row = row.replace(/^\sa[.](\s*)/, '<olwikilist class="wiki-list wiki-list-upper-alpha">\n<liwikilist>\n');
-			inolAlist = 1;
-		} else if(row.startsWith(' A.')) {
-			row = row.replace(/^\s/, '');
-			row = row.replace(/^A[.](\s*)/, '</liwikilist><liwikilist>\n');
-			inolAlist = 1;
-		}
-		if(row.startsWith(' i.') && !inolAlist) {
-			row = row.replace(/^\si[.](\s*)/, '<olwikilist class="wiki-list wiki-list-roman">\n<liwikilist>\n');
-			inolilist = 1;
-		} else if(row.startsWith(' A.')) {
-			row = row.replace(/^\s/, '');
-			row = row.replace(/^i[.](\s*)/, '</liwikilist><liwikilist>\n');
-			inolilist = 1;
-		}
-		if(row.startsWith(' I.') && !inolAlist) {
-			row = row.replace(/^\sI[.](\s*)/, '<olwikilist class="wiki-list wiki-list-upper-roman">\n<liwikilist>\n');
-			inolIlist = 1;
-		} else if(row.startsWith(' A.')) {
-			row = row.replace(/^\s/, '');
-			row = row.replace(/^I[.](\s*)/, '</liwikilist><liwikilist>\n');
-			inolIlist = 1;
 		}
 		rows[i] = row;
 	}
 	rows.splice(0, 1);
 	rows.pop();
 	if(inlist) rows.push('</liwikilist>\n</ulwikilist>');
-	if(inol1list) rows.push('</liwikilist>\n</olwikilist>');
-	if(inolalist) rows.push('</liwikilist>\n</olwikilist>');
-	if(inolAlist) rows.push('</liwikilist>\n</olwikilist>');
-	if(inolilist) rows.push('</liwikilist>\n</olwikilist>');
-	if(inolIlist) rows.push('</liwikilist>\n</olwikilist>');
 	return rows.join('\n');
 }
 
@@ -535,10 +440,10 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	bclose = new Queue();
 	var lopen = false;  // 리터럴 블록 처리 중...
 	var line = 1;
-	const cssProperties = ['background', 'background-attachment', 'background-clip', 'background-color', 'background-image', 'background-origin', 'background-position', 'background-repeat', 'background-size', 'border', 'border-bottom', 'border-bottom-color', 'border-bottom-left-radius', 'border-bottom-right-radius', 'border-bottom-style', 'border-bottom-width', 'border-collapse', 'border-color', 'border-image', 'border-image-outset', 'border-image-repeat', 'border-image-slice', 'border-image-source', 'border-image-width', 'border-left', 'border-left-color', 'border-left-style', 'border-left-width', 'border-radius', 'border-right', 'border-right-color', 'border-right-style', 'border-right-width', 'border-spacing', 'border-style', 'border-top', 'border-top-color', 'border-top-left-radius', 'border-top-right-radius', 'border-top-style', 'border-top-width', 'border-width', 'box-shadow', 'box-sizing', 'caption-side', 'clear', 'clip', 'color', 'column-count', 'column-fill', 'column-gap', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width', 'column-span', 'column-width', 'columns', 'content', 'display', 'float', 'font', 'font-family', 'font-size', 'font-size-adjust', 'font-stretch', 'font-style', 'font-variant', 'font-weight', 'height', 'justify-content', 'left', 'letter-spacing', 'line-height', 'list-style', 'list-style-image', 'list-style-position', 'list-style-type', 'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top', 'max-height', 'max-width', 'min-height', 'min-width', 'opacity', 'order', 'outline', 'outline-color', 'outline-offset', 'outline-style', 'outline-width', 'overflow', 'overflow-x', 'overflow-y', 'padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'quotes', 'resize', 'tab-size', 'table-layout', 'text-align', 'text-align-last', 'text-decoration', 'text-decoration-color', 'text-decoration-line', 'text-decoration-style', 'text-indent', 'text-justify', 'text-overflow', 'text-shadow', 'text-transform', 'vertical-align', 'visibility', 'white-space', 'width', 'word-break', 'word-spacing', 'word-wrap', '-moz-border-radius', '-moz-border-top-colors', '-moz-border-left-colors', '-moz-border-right-colors', '-moz-border-bottom-colors'];
+	const cssProperties = ['background', 'background-attachment', 'background-clip', 'background-color', 'background-image', 'background-origin', 'background-position', 'background-repeat', 'background-size', 'border', 'border-bottom', 'border-bottom-color', 'border-bottom-left-radius', 'border-bottom-right-radius', 'border-bottom-style', 'border-bottom-width', 'border-collapse', 'border-color', 'border-image', 'border-image-outset', 'border-image-repeat', 'border-image-slice', 'border-image-source', 'border-image-width', 'border-left', 'border-left-color', 'border-left-style', 'border-left-width', 'border-radius', 'border-right', 'border-right-color', 'border-right-style', 'border-right-width', 'border-spacing', 'border-style', 'border-top', 'border-top-color', 'border-top-left-radius', 'border-top-right-radius', 'border-top-style', 'border-top-width', 'border-width', 'box-shadow', 'box-sizing', 'caption-side', 'clear', 'clip', 'color', 'column-count', 'column-fill', 'column-gap', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width', 'column-span', 'column-width', 'columns', 'content', 'display', 'float', 'font', 'font-family', 'font-size', 'font-size-adjust', 'font-stretch', 'font-style', 'font-variant', 'font-weight', 'height', 'justify-content', 'left', 'letter-spacing', 'line-height', 'list-style', 'list-style-image', 'list-style-position', 'list-style-type', 'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top', 'max-height', 'max-width', 'min-height', 'min-width', 'opacity', 'order', 'outline', 'outline-color', 'outline-offset', 'outline-style', 'outline-width', 'overflow', 'overflow-x', 'overflow-y', 'padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'quotes', 'resize', 'tab-size', 'table-layout', 'text-align', 'text-align-last', 'text-decoration', 'text-decoration-color', 'text-decoration-line', 'text-decoration-style', 'text-indent', 'text-justify', 'text-overflow', 'text-shadow', 'text-transform', 'vertical-align', 'visibility', 'white-space', 'width', 'word-break', 'word-spacing', 'word-wrap'];
 	function filterCSS(style) {
 		var ret = '';
-		const document = jsdom('');
+		const { document } = (new JSDOM('')).window;
 		const el = document.createElement('div');
 		el.setAttribute('style', style);
 		for(var idx of Object.keys(el.style)) {
@@ -648,7 +553,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	data = segments.join('');
 	
 	// 리터럴 (제대로 된 방법은 아니겠지만...)
-	var document = jsdom(data.replace(/\n/g, '<br>'));
+	var { document } = (new JSDOM(data.replace(/\n/g, '<br>'))).window;
 	for(var item of document.querySelectorAll('nowikiblock')) {
 		const key = rndval('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+=/', 2048);
 		nwblocks[key] = item.innerHTML;
@@ -656,7 +561,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	}
 	data = document.querySelector('body').innerHTML.replace(/<br>/g, '\n');
 	
-	// 각주
+	// 새각주
 	var rdata = {}, tdata = {}, tdata2 = {};
 	function parseFootnotes() {
 		var dq = new Deque(), bopen = new Deque(), close = new Queue;
@@ -714,7 +619,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 		
 		var qfn = new Queue();
 		var qa = new Queue();
-		var document = jsdom(ret.replace(/\n/g, '<br>'));
+		var { document } = (new JSDOM(ret.replace(/\n/g, '<br>'))).window;
 		var id = 1;
 		var fn = [];
 		var rpid = {};
@@ -821,18 +726,6 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	data = data.replace(/<liwikilist>/g, '<li>');
 	data = data.replace(/<\/liwikilist>/g, '</li>');
 	
-	data = data.replace(/<olwikilist\sclass[=]wiki[-]list>/g, '<ol class=wiki-list>');
-	data = data.replace(/<olwikilist\sclass[=]wiki[-]list>\n/g, '<ol class=wiki-list>');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]alpha\">/g, '<ol class="wiki-list wiki-list-alpha">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]alpha\">\n/g, '<ol class="wiki-list wiki-list-alpha">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]upper[-]alpha\">/g, '<ol class="wiki-list wiki-list-upper-alpha">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]upper[-]alpha\">\n/g, '<ol class="wiki-list wiki-list-upper-alpha">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]roman\">/g, '<ol class="wiki-list wiki-list-roman">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]roman\">\n/g, '<ol class="wiki-list wiki-list-roman">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]upper[-]roman\">/g, '<ol class="wiki-list wiki-list-upper-roman">');
-	data = data.replace(/<olwikilist\sclass[=]\"wiki[-]list\swiki[-]list[-]upper[-]roman\">\n/g, '<ol class="wiki-list wiki-list-upper-roman">');
-	data = data.replace(/<\/olwikilist>/g, '</ol>');
-	
 	// 들여쓰기
 	do {
 		data = parseIndent(data);
@@ -858,7 +751,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 			dest = dd[0];
 		}
 		
-		var ddata = await curs.execute("select content from documents where title = ? and namespace = ?", [processTitle(dest.replace(/^([:]|\s)((분류|파일)[:])/, '$2')).title, processTitle(dest.replace(/^([:]|\s)((분류|파일)[:])/, '$2')).namespace]);
+		var ddata = await curs.execute("select content from documents where title = ? and namespace = ?", [processTitle(dest).title, processTitle(dest).namespace]);
 		const notexist = !ddata.length ? ' not-exist' : '';
 		
 		if(dest.startsWith('분류:') && !discussion) {  // 분류
@@ -868,68 +761,16 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 			}
 			data = data.replace(link, '');
 			continue;
-		} 
-		if(dest.startsWith('파일:') && !discussion && !notexist) {  // 그림
-			var linkdoc = processTitle(dest);
-			var filedata = await curs.execute("select url, size, width, height from files where title = ? and namespace = ?", [linkdoc.title, linkdoc.namespace]);
-			if(filedata.length) {
-				filedata = filedata[0];
-				let align = 'normal', width, height, bgcolor, borderRadius, rendering;
-				if(disp != dest) {
-					var args = disp.replace(/\s/g, '').replace(/\'/g, '').replace(/\"/g, '').replace(/[;]/g, '').split('&');
-					for(var ia of args) {
-						ia = ia.toLowerCase();
-						if(ia.split('=')[0] == 'width')
-							width = ia.replace(ia.split('=')[0] + '=', '');
-						else if(ia.split('=')[0] == 'height')
-							height = ia.replace(ia.split('=')[0] + '=', '');
-						else if(ia.split('=')[0] == 'align')
-							align = ia.replace(ia.split('=')[0] + '=', '');
-						else if(ia.split('=')[0] == 'bgcolor')
-							bgcolor = ia.replace(ia.split('=')[0] + '=', '');
-						else if(ia.split('=')[0] == 'border-radius')
-							borderRadius = ia.replace(ia.split('=')[0] + '=', '');
-						else if(ia.split('=')[0] == 'rendering')
-							rendering = ia.replace(ia.split('=')[0] + '=', '');
-					}
-					if(width && !width.replace(/\d+/, ''))
-						width += 'px';
-					if(height && !height.replace(/\d+/, ''))
-						height += 'px';
-				}
-				if(align != 'normal' && align != 'top' && align != 'right' && align != 'center' && align != 'top' && align != 'middle' && align != 'bottom')
-					align = 'normal';
-				if(rendering != 'pixelated')
-					rendering = undefined;
-				data = data.replace(link, `
-					<a class=wiki-link-internal href="/w/${encodeURIComponent(dest)}" title="${dest}">
-						<span class=wiki-image-align-${align} style="${width ? `width:${width};` : ''}${height ? `height:${height};` : ''}${bgcolor ? `background-color:${bgcolor};` : ''}${borderRadius ? `border-radius:${borderRadius};` : ''}${rendering ? `image-rendering:${rendering};` : ''}">
-							<span class=wiki-image-wrapper style="height: 100%;">
-								<img class=wiki-image-space height="100%" src="data:image/svg+xml;base64,${Buffer.from(`<svg width="${filedata.width}" height="${filedata.height}" xmlns="http://www.w3.org/2000/svg"></svg>`).toString('base64')}" style="max-width: 100% !important;" />
-								<img class="wiki-image wiki-image-loading" height="100%" data-filesize=${filedata.size || 0} data-src="${filedata.url}" alt="${html.escape(dest)}" />
-								<noscript>
-									<img class=wiki-image height="100%" src="${filedata.url}" alt="${html.escape(dest)}" />
-								</noscript>
-							</span>
-						</span>
-					</a>
-				`.replace(/\n/g, '').replace(/\t/g, ''));
-				if(xref) {
-					if(!xrefl.includes(linkdoc.title + '\n' + linkdoc.namespace)) {
-						xrefl.push(linkdoc.title + '\n' + linkdoc.namespace);
-						curs.execute("insert into backlink (title, namespace, link, linkns, type, exist) values (?, ?, ?, ?, 'file', ?)", [doc.title, doc.namespace, linkdoc.title, linkdoc.namespace, '1']);
-					}
-				}
-				continue;
-			}
+		} if(dest.startsWith('파일:') && !discussion && !notexist) {  // 그림
+			// 나중에 구현할랭
+			data = data.replace(link, '');
+			continue;
 		}
 		
-		if(dest == disp)
-			disp = disp.replace(/^([:]|\s)((분류|파일)[:])/, '$2');
 		dest = dest.replace(/^([:]|\s)((분류|파일)[:])/, '$2');
 		
 		const sl = dest == root ? ' wiki-self-link' : '';
-		data = data.replace(link, '<a ' + (external ? 'target=_blank ' : ('title="' + dest + '" ')) + 'class="wiki-link-' + (external ? 'external' : 'internal') + '' + sl + notexist + '" href="' + (external ? '' : '/w/') + '' + (external ? (x => x) : (x => encodeURIComponent(x.replace(/[&]amp[;]/g, '&').replace(/[&]lt[;]/g, '<').replace(/[&]gt[;]/g, '>').replace(/[&]quot[;]/g, '"'))))(dest) + (!external && dd[1] ? html.escape('#' + dd[1]) : '') + '">' + disp + '</a>');
+		data = data.replace(link, '<a ' + (external ? 'target=_blank ' : '') + 'class="wiki-link-' + (external ? 'external' : 'internal') + '' + sl + notexist + '" href="' + (external ? '' : '/w/') + '' + (external ? (x => x) : (x => encodeURIComponent(x.replace(/[&]amp[;]/g, '&').replace(/[&]lt[;]/g, '<').replace(/[&]gt[;]/g, '>').replace(/[&]quot[;]/g, '"'))))(dest) + (!external && dd[1] ? html.escape('#' + dd[1]) : '') + '">' + disp + '</a>');
 		
 		// 역링크
 		if(xref && !external && !sl) {
@@ -1094,7 +935,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	}
 	
 	// 표렌더
-	var document = jsdom(data.replace(/\n/g, '<br>'));
+	var { document } = (new JSDOM(data.replace(/\n/g, '<br>'))).window;
 	function ft(el) {
 		const blks = el.querySelectorAll('dl.wiki-folding > dd, div.wiki-style, blockquote.wiki-quote');
 		if(blks.length) for(let el2 of blks) ft(el2);
@@ -1105,7 +946,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	data = document.body.innerHTML.replace(/<br>/g, '\n');
 	
 {	// 각주 마무리
-	var document = jsdom(data.replace(/\n/g, '<br>'));
+	var { document } = (new JSDOM(data.replace(/\n/g, '<br>'))).window;
 	for(var item of document.querySelectorAll('a.wiki-fn-content')) {
 		item.setAttribute('title', tdata[item.getAttribute('data-numeric-id')] || tdata2[item.getAttribute('data-title')]);
 		item.removeAttribute('data-title');
@@ -1122,24 +963,6 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 	data = data.replace(/<spannw>(.)<\/spannw>/g, '$1');
 	
 	if(!discussion) data = '<div class=wiki-inner-content>' + data + '</div>';
-	
-	if(doc.namespace == '파일') {
-		var filedata = await curs.execute("select url, width, height from files where title = ? and namespace = ?", [doc.title, doc.namespace]);
-		if(filedata.length) {
-			filedata = filedata[0];
-			data = `
-				<span class=wiki-image-align-normal>
-					<span class=wiki-image-wrapper>
-						<img class=wiki-image-space src="data:image/svg+xml;base64,${Buffer.from(`<svg width="${filedata.width}" height="${filedata.height}" xmlns="http://www.w3.org/2000/svg"></svg>`).toString('base64')}" />
-						<img class=wiki-image src="${filedata.url}" alt="${html.escape(title)}" />
-						<noscript>
-							<img class=wiki-image src="${filedata.url}" alt="${html.escape(title)}" />
-						</noscript>
-					</span>
-				</span>
-			`.replace(/\n/g, '').replace(/\t/g, '') + data;
-		}
-	}
 	
 	data = data.replace(/<div>\n/, '<div>').replace(/\n<\/div><h(\d)/g, '</div><h$1').replace(/\n/g, '<br />');
 	data = data.replace(/<br\s\/><ul\sclass=\"wiki[-]list\">/g, '<ul class=wiki-list>').replace(/<\/ul><br\s\/>/g, '</ul>');
@@ -1269,7 +1092,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 				</div>
 			` + data;
 		} else if(doc.namespace != '사용자' && !discussion && !flags.includes('preview')) {
-			data = alertBalloon('이 문서는 분류가 되어 있지 않습니다. <a href="/w/분류:분류">분류:분류</a>에서 적절한 분류를 찾아 문서를 분류해주세요!', 'info', true, undefined, undefined, 'wikiNoCategoryAlert') + data;
+			data = alertBalloon('이 문서는 분류가 되어 있지 않습니다. <a href="/w/분류:분류">분류:분류</a>에서 적절한 분류를 찾아 문서를 분류해주세요!', 'info', true) + data;
 		}
 	}
 	
@@ -1279,14 +1102,12 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 		
 		// #!html 문법
 		if(nwdata.startsWith('<rawhtml>')) {
-			var document = jsdom(nwdata);
+			var { document } = (new JSDOM(nwdata)).window;
 			var dom = document.querySelector('rawhtml');
 			dom.innerHTML = dom.textContent.replace(/\n/g, '<br>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 			for(var el of dom.getElementsByTagName('*')) {
 				if(whtags.includes(el.tagName.toLowerCase())) {
-					var atl = el.attributes.length, attr;
-					for(let i=0; i<atl; i++) {
-						attr = el.attributes[i];
+					for(var attr of el.attributes) {
 						if(((whattr[el.tagName.toLowerCase()] || []).concat(whattr['*'])).includes(attr.name)) {
 							if(attr.name == 'style')
 								el.setAttribute('style', filterCSS(attr.value));
@@ -1307,8 +1128,7 @@ module.exports = async function markdown(req, content, discussion = 0, title = '
 		data = data.replace(item, nwdata);
 	}
 	
-	if(hostconfig.log_renderer)
-		log('렌더러', (title || '문서') + ' 파싱 완료.');
+	log('렌더러', (title || '문서') + ' 파싱 완료.');
 	
 	return data;
 }
